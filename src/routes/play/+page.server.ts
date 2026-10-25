@@ -5,18 +5,19 @@ import { db } from '#lib/server/db/index.ts';
 import type { PageServerLoad } from './$types';
 import { gt, notInArray, sql } from 'drizzle-orm'
 import { dailyMTCdle, vehicles } from '#lib/server/db/schema.ts' 
+import { refreshVehiclesIfStale, GameType } from '#lib/server/vehicles.ts';
 import { error } from 'console';
 
 export const load: PageServerLoad = async ({ url }) => {
     const dateObj = new Date()
-    const dateString = dateObj.toISOString().slice(0, 10)
-    dateObj.setUTCDate(dateObj.getUTCDate() - 30)
-    const cutoffDate = dateObj.toISOString().slice(0, 10)
+    // const dateString = dateObj.toISOString().slice(0, 10)
+    dateObj.setUTCDate(dateObj.getTime() - (30 * 24 * 60 * 60 * 1000))
+    // const cutoffDate = dateObj
     if (url.searchParams.get('type') === "infinite")  {
         // 
     } else {
         const currMTCdle = await db.query.dailyMTCdle.findFirst({
-            where: (t, { eq }) => eq(t.date, dateString),
+            where: (t, { eq }) => eq(t.date, dateObj), // dateObj is still the curr date here
             with: { vehicle: true }
         })
 
@@ -26,7 +27,7 @@ export const load: PageServerLoad = async ({ url }) => {
             const recentSlugs = db
                 .select({ slug: dailyMTCdle.vehicleSlug })
                 .from(dailyMTCdle)
-                .where(gt(dailyMTCdle.date, cutoffDate))
+                .where(gt(dailyMTCdle.date, dateObj)) // dateObj has become the cutoff date here
             const [pick] = await db
                 .select()
                 .from(vehicles)
@@ -40,5 +41,7 @@ export const load: PageServerLoad = async ({ url }) => {
             }
             
         }
+
+        refreshVehiclesIfStale(GameType.MTC);
     }
 };
