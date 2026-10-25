@@ -1,8 +1,8 @@
 import { db } from "./db";
 import { sessions } from "./db/schema";
-import { eq } from "drizzle-orm";
+import { eq, and, gt } from "drizzle-orm";
 
-async function generateToken(user_uuid: string) { // we don't need to verify here since thats the job of the login func
+export async function generateToken(user_uuid: string) { // we don't need to verify here since thats the job of the login func
     const bytes = crypto.getRandomValues(new Uint8Array(32));
     const hash = await window.crypto.subtle.digest("SHA-256", bytes);
     const hashStr = new TextDecoder().decode(hash)
@@ -18,37 +18,31 @@ async function generateToken(user_uuid: string) { // we don't need to verify her
     return new TextDecoder().decode(bytes)
 }
 
-async function revokeToken(token: string) {
+export async function revokeToken(token: string) {
     const hash = await window.crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
 
     const deleted_session = await db.delete(sessions)
-        .where(eq(sessions.tokenHash, new TextDecoder().decode(hash)))
+        .where(eq(sessions.tokenHash, Buffer.from(hash).toString('hex')))
         .returning();
     
     return deleted_session
 }
 
-async function validateToken(token: string) {
-    const hash = await window.crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
+export async function validateToken(token: string): Promise<{ userId: string } | null> {
+	const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token))
+	const tokenHash = Buffer.from(hash).toString('hex')
 
-    const dbResult = await db.select({
-        revokeAt: sessions.revokeAt,
-        createdAt: sessions.createdAt
-    }).from(sessions).where(eq(sessions.tokenHash, new TextDecoder().decode(hash))).limit(1)
+	const [session] = await db
+		.select({ userId: sessions.userId })
+		.from(sessions)
+		.where(and(eq(sessions.tokenHash, tokenHash), gt(sessions.revokeAt, new Date())))
+		.limit(1)
 
-    if (!dbResult[0]) {
-        return {"error": "No matching token"}
-    } else if (!dbResult[0].revokeAt) {
-        return {"error": "No revocation time"}
-    } else if (dbResult[0].revokeAt?.getTime() < new Date().getTime()) {
-        return {"error": "Revocation time has passed"}
-    } else {
-        return dbResult[0]
-    }
+	return session ?? null
 }
 
-async function beginDiscordAuth() {
-    
+export async function beginDiscordAuth() {
+
 }
 
 // async function createUser(passwordHash) {

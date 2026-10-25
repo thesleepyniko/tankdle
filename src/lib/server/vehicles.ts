@@ -2,7 +2,6 @@ import type { VehiclesSchema} from '#lib/server/types/vehicles.d.ts'
 import { db } from '#lib/server/db/index.ts'
 import { sql, eq } from 'drizzle-orm'
 import { vehicles, vehicleMetadata } from '#lib/server/db/schema.ts'
-import { date } from 'drizzle-orm/pg-core'
 
 const BUCKET_URL = "https://public-stats-data.multicrew.dev/production/1.0.0/vehicles.json";
 export enum GameType {
@@ -27,7 +26,6 @@ export async function refreshVehicles(game: GameType) {
         role: vehicle.info.role,
         team: vehicle.info.team,
         image: `https://cdn.astrid.ovh/public-stats-images/${vehicle.info.slug}/perspective.png`,
-        // lastSynced: new Date().toISOString().slice(0, 10)
     }));
 
     await db
@@ -41,7 +39,6 @@ export async function refreshVehicles(game: GameType) {
                 role: sql`excluded.role`,
                 team: sql`excluded.team`,
                 image: sql`excluded.image`,
-                // lastSynced: sql`excluded.last_synced`
             }
         });
 
@@ -61,7 +58,6 @@ export async function refreshVehicles(game: GameType) {
 };
 
 export async function refreshVehiclesIfStale(game: GameType) {
-    // const [oldest_date] = await db.select({ value: min(vehicles.lastSynced) }).from(vehicles);
     const [last_synced_game] = await db
         .select({lastSynced: vehicleMetadata.lastSynced})
         .from(vehicleMetadata)
