@@ -1,25 +1,23 @@
 // i...think we can just fetch it every once in a while here and return early while its still fetching the updated data?
 // only need to fetch like once every week afaik since MTC ain't update allat fast
 
-import { db } from '#lib/server/db/index.ts';
-import type { PageServerLoad } from './$types';
-import { gt, notInArray, sql, eq, and } from 'drizzle-orm'
-import { dailyMTCdle, vehicles, solves } from '#lib/server/db/schema.ts' 
-import { mkdir, writeFile, rename } from 'node:fs/promises'
-import { refreshVehiclesIfStale, GameType } from '#lib/server/vehicles.ts';
-import { error } from 'console';
-import { IMAGE_DIR } from '$app/env/private'
-import path from 'path';
-import { validateToken } from '#lib/server/auth.ts';
-import { decrypt, encrypt } from '#lib/server/encryption.ts';
-import { fail, type Actions } from '@sveltejs/kit';
-import { saveVehicleImg } from '#lib/server/images.ts';
-
-type PuzzleToken =
-	| { v: 1; mode: 'daily'; date: string; user: string; }
-	| { v: 1; mode: 'infinite'; slug: string; game: string; createdAt: number; user: string; }
+import { db } from '#lib/server/db/index.ts'
+import type { PageServerLoad } from './$types'
+import { gt, notInArray, sql, eq, and, isNull } from 'drizzle-orm'
+import { dailyMTCdle, vehicles, solves } from '#lib/server/db/schema.ts'
+import { refreshVehiclesIfStale, GameType } from '#lib/server/vehicles.ts'
+import { validateToken } from '#lib/server/auth.ts'
+import { decrypt, encrypt } from '#lib/server/encryption.ts'
+import { error, fail, type Actions } from '@sveltejs/kit'
+import { saveVehicleImg } from '#lib/server/images.ts'
+import type { PuzzleToken } from '#lib/server/types/puzzleToken.js'
 
 const MAX_GUESSES = 5
+
+async function makeIdentifier(data: PuzzleToken) {
+	const encrypted = await encrypt(new TextEncoder().encode(JSON.stringify(data)))
+	return Buffer.from(encrypted).toString('base64url')
+}
 
 export const load: PageServerLoad = async ({ url, cookies }) => {
     const today = new Date().toISOString().slice(0, 10)   // "2026-10-25"
@@ -40,27 +38,24 @@ export const load: PageServerLoad = async ({ url, cookies }) => {
     // const cutoffDate = dateObj
     if (url.searchParams.get('type') === "infinite")  {
         const [pick] = await db
-                .select()
+                .select({ slug: vehicles.slug })
                 .from(vehicles)
+                .where(isNull(vehicles.archivedAt))
                 .orderBy(sql`random()`)
                 .limit(1)
-        
+
+        if (!pick) {
+            error(503, "No vehicles available")
+        }
+
         const data: PuzzleToken = { v: 1, mode: 'infinite', slug: pick.slug, game: GameType.MTC, createdAt: new Date().getTime(), user: userId}
-        const encrypted = await encrypt(new TextEncoder().encode(JSON.stringify(data))) // prevent the user from just finding the answer
-        const identifier = Buffer.from(encrypted).toString('base64url')
+        const identifier = await makeIdentifier(data)
         return { identifier: identifier }
     } else {
-        const currMTCdle = await db.query.dailyMTCdle.findFirst({
+        let currMTCdle = await db.query.dailyMTCdle.findFirst({
             where: (t, { eq }) => eq(t.date, today), // dateObj is still the curr date here
-            with: { vehicle: true }
         })
-
-        if (currMTCdle && currMTCdle.vehicle) {
-            const data: PuzzleToken = { v: 1, mode: 'daily', date: currMTCdle.date, user: userId}
-            const encrypted = await encrypt(new TextEncoder().encode(JSON.stringify(data))) // prevent the user from just finding the answer
-            const identifier = Buffer.from(encrypted).toString('base64url')
-            return { identifier: identifier }
-        } else {
+        if (!currMTCdle) {
             const recentSlugs = db
                 .select({ slug: dailyMTCdle.vehicleSlug })
                 .from(dailyMTCdle)
@@ -68,7 +63,7 @@ export const load: PageServerLoad = async ({ url, cookies }) => {
             const [pick] = await db
                 .select()
                 .from(vehicles)
-                .where(notInArray(vehicles.slug, recentSlugs))
+                .where(and(notInArray(vehicles.slug, recentSlugs), isNull(vehicles.archivedAt)))
                 .orderBy(sql`random()`)
                 .limit(1)
             
@@ -77,14 +72,30 @@ export const load: PageServerLoad = async ({ url, cookies }) => {
                 error(503, "No vehicles eligible for pick")
             }
 
-            if (pick.image) {
-                saveVehicleImg(pick.slug, pick.image)
-            } else {
-                saveVehicleImg(pick.slug)
+            await db.insert(dailyMTCdle)
+                .values({ date: today, vehicleSlug: pick.slug })
+                .onConflictDoNothing()
+
+            // re-read, so everyone gets the winning row
+            currMTCdle = await db.query.dailyMTCdle.findFirst({
+                where: (t, { eq }) => eq(t.date, today),
+            })
+            if (!currMTCdle) {
+                error(500, "Could not create daily puzzle")
+            }
+
+            try {
+                await saveVehicleImg(currMTCdle.vehicleSlug)
+            } catch (err) {
+                console.error('Daily image save failed:', err)
             }
         }
 
-        refreshVehiclesIfStale(GameType.MTC);
+	    void refreshVehiclesIfStale(GameType.MTC).catch((err) => console.error('Vehicle sync failed:', err))
+
+        const data: PuzzleToken = { v: 1, mode: 'daily', date: currMTCdle.date, user: userId}
+        const identifier = await makeIdentifier(data)
+        return { identifier: identifier }
     }
 };
 
@@ -121,7 +132,11 @@ export const actions = {
         }
 
         if (puzzle.mode === 'daily') {
-            if (puzzle.date < new Date().toISOString().slice(0, 10)) {
+            const yesterdayDate = new Date()
+            yesterdayDate.setUTCDate(yesterdayDate.getUTCDate() - 1)
+            const yesterday = yesterdayDate.toISOString().slice(0, 10)
+
+            if (puzzle.date < yesterday) {
                 return fail(400, { message: 'This puzzle has expired, please reload' })
             }
             const answer = await db.query.dailyMTCdle.findFirst({
@@ -132,6 +147,14 @@ export const actions = {
             if (!answer) {
                 return fail(400, { message: 'Daily puzzle does not exist, please reload' })
             }
+
+            const reveal = {
+                name: answer.vehicle.name,
+                team: answer.vehicle.team,
+                role: answer.vehicle.role,
+            };
+
+            let guessCount: number;
 
             if (userId) {
                 const [existing] = await db
@@ -147,12 +170,17 @@ export const actions = {
                     return fail(400, { message: 'No guesses left' })
                 }
 
-                await db.insert(solves)
+                const [counted] = await db.insert(solves)                    
                     .values({ userId, date: puzzle.date, guesses: 1 })
                     .onConflictDoUpdate({
                         target: [solves.userId, solves.date],
                         set: { guesses: sql`${solves.guesses} + 1` },
                     })
+                    .returning({ guesses: solves.guesses });
+                
+                guessCount = counted.guesses
+            } else {
+                guessCount = Number(form.get('guessNumber')) || 0
             }
 
             if (answer.vehicleSlug === guess) {
@@ -161,20 +189,33 @@ export const actions = {
                         .set({ solvedAt: new Date() })
                         .where(and(eq(solves.userId, userId), eq(solves.date, puzzle.date)))
                 }
-                return {
-                    correct: true,
-                    vehicle: {
-                        name: answer.vehicle.name,
-                        team: answer.vehicle.team,
-                        role: answer.vehicle.role,
-                    },
-                }
+                return { correct: true, vehicle: reveal }
             } 
 
+            if (guessCount >= MAX_GUESSES) {
+                return { correct: false, outOfGuesses: true, vehicle: reveal }
+            }
+
+            return { correct: false }
+
+        } 
+        if (puzzle.mode === 'infinite') {
+            if (Date.now() - puzzle.createdAt > 6 * 60 * 60 * 1000) {
+                return fail(400, { message: 'This round has expired, please start a new one' })
+            }
+
+            if (puzzle.slug === guess) {
+                const vehicle = await db.query.vehicles.findFirst({
+                    where: (t, { eq }) => eq(t.slug, puzzle.slug),
+                })
+                return {
+                    correct: true,
+                    vehicle: vehicle ? { name: vehicle.name, team: vehicle.team, role: vehicle.role } : null,
+                }
+            }
             return { correct: false }
         }
-        // type PuzzleToken =
-	// | { v: 1; mode: 'daily'; date: string; user: string; }
-	// | { v: 1; mode: 'infinite'; slug: string; game: string; createdAt: number }
+
+        return fail(400, { message: 'Unsupported puzzle, please reload' })
 	} 
 } satisfies Actions

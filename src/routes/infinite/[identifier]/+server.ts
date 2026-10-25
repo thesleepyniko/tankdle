@@ -1,16 +1,13 @@
 import { error } from '@sveltejs/kit'
-import { readFile } from 'node:fs/promises'
-import path from 'node:path'
 import type { RequestHandler } from './$types'
-import { db } from '#lib/server/db/index.ts'
-import { IMAGE_DIR } from '$app/env/private'
 import { decrypt } from '#lib/server/encryption.ts'
+import { readVehicleImg, saveVehicleImg } from '#lib/server/images.ts'
+import type { PuzzleToken } from '#lib/server/types/puzzleToken.js'
 
 // const VIEWS = ['perspective', 'front', 'back', 'left', 'right', 'top']
 
 export const GET: RequestHandler = async ({ params }) => {
-    let puzzle
-    let MTCdleResult
+    let puzzle: PuzzleToken
 
     try {
         const bytes = new Uint8Array(Buffer.from(params.identifier, 'base64url')) 
@@ -25,22 +22,17 @@ export const GET: RequestHandler = async ({ params }) => {
         return error(400, "Incorrect mode")
     }
 
-    const imageDir = IMAGE_DIR ?? './data/vehicles'
-    const saveDir = path.join(imageDir, puzzle.slug)
-    const finalPath = path.join(saveDir, "perspective.png"); // always use the perspective view
-    let file
-	try {
-		file = await readFile(finalPath)
-	} catch {
-		try {
-			await writeFile(,)
-			file = await readFile(filePath)
-		} catch {
-			error(404, 'No image available')
-		}
-	}
+    let file = await readVehicleImg(puzzle.slug);
+    if (!file) {
+        await saveVehicleImg(puzzle.slug)
+        file = await readVehicleImg(puzzle.slug)
+        if (!file) {
+            error(404, "No image available")
+        }
+    }
+    
 
-	return new Response(file, {
+	return new Response(new Uint8Array(file), {
 		headers: {
 			'Content-Type': 'image/png',
 			'Cache-Control': 'private, max-age=86400',

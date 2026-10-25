@@ -1,5 +1,5 @@
 import { IMAGE_DIR } from '$app/env/private'
-import { mkdir, writeFile, rename } from 'fs/promises'
+import { mkdir, writeFile, rename, readFile } from 'fs/promises'
 import path from 'path'
 
 const imageDir = IMAGE_DIR ?? "./data/images"
@@ -18,7 +18,7 @@ export async function saveVehicleImg(slug: string, url?: string) {
         res = await fetch(`https://cdn.astrid.ovh/public-stats-images/${slug}/perspective.png`)
     }
 
-    if (!res.ok) throw new Error(`Fetch failed with status ${res}`);
+    if (!res.ok) throw new Error(`Image fetch failed for ${slug}: ${res.status}`)
 
     const bytes = new Uint8Array(await res.arrayBuffer())
 
@@ -29,4 +29,14 @@ export async function saveVehicleImg(slug: string, url?: string) {
 
     await writeFile(tempPath, bytes);
     await rename(tempPath, finalPath);
+}
+
+export async function readVehicleImg(slug: string) {
+    let file
+    try {
+        file = await readFile(vehiclePathImg(slug))
+    } catch {
+        return null
+    }
+    return file
 }
