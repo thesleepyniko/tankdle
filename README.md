@@ -1,56 +1,19 @@
-# sv
+# MTCdle
 
-Everything you need to build a Svelte project, powered by [`sv`](https://github.com/sveltejs/cli).
+![Screenshot of an MTCdle Infinite game where the user has guessed the CV 90120-T Ghost and won](https://terra.hackclub-assets.com/769bccf9-3b1d-4a40-8ef2-ea34c601a7f4.png)
 
-## Creating a project
+Think Wordle, but MTC and Tanks
 
-If you're seeing this, you've probably already done this step. Congrats!
+## Features
 
-```sh
-# create a new project
-npx sv create my-app
-```
+- Daily mode
+- Infinite mode
+- Copying your results I guess?
 
-To recreate this project with the same configuration:
+## Technical details
 
-```sh
-# recreate this project
-bun x sv@1.1.1 create --template minimal --types ts --add prettier eslint vitest="usages:unit,component" enhanced-img sveltekit-adapter="adapter:auto" --install bun tankdle
-```
+MTCdle returns the information of your run as a encrypted (using AES-256-GCM) JSON object, and on every run you send it back to the server. If it fails to parse, it will error. Then, it lazy loads all vehicles if they haven't been loaded ever yet, then lazy loads the image for the current tank.
 
-## Adding features
+Technically there are supposed to be users...but didn't have time :pf:
 
-Add features to your project with `sv add`:
-
-```sh
-npx sv add
-```
-
-For example, to add Tailwind CSS:
-
-```sh
-npx sv add tailwindcss
-```
-
-## Developing
-
-Once you've created a project and installed dependencies with `npm install` (or `pnpm install` or `yarn`), start a development server:
-
-```sh
-npm run dev
-
-# or start the server and open the app in a new browser tab
-npm run dev -- --open
-```
-
-## Building
-
-To create a production version of your app:
-
-```sh
-npm run build
-```
-
-You can preview the production build with `npm run preview`.
-
-> To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.
+Built for [Terra (Week 1), a Hack Club Event](https://terra.hackclub.com)
