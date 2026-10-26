@@ -24,14 +24,6 @@
 
 <style>
 /* Lexend Deca, the notch one, IBM plex sans */
-    :global(body) {
-        margin: 0;
-        margin-left: 5vw;
-        margin-right: 5vw;
-        background-color: black;
-        font-family: Arial, Helvetica, sans-serif;
-    }
-
     main {
         display: flex;
         flex-direction: column;
@@ -39,16 +31,8 @@
         justify-content: center;
         align-items: center;
         min-height: 100vh;
-        min-width: 100vh;
+        min-width: 100vw;
         color: white;
-    }
-
-    a {
-        color: lightblue;
-    }
-
-    a:visited {
-        color: plum;
     }
 
     h1 {

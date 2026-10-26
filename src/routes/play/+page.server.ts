@@ -13,6 +13,17 @@ import { saveVehicleImg } from '#lib/server/images.ts'
 import type { PuzzleToken } from '#lib/server/types/puzzleToken.js'
 
 const MAX_GUESSES = 5
+type Vehicle = typeof vehicles.$inferSelect
+
+function compareGuess(guessed: Vehicle, answer: Vehicle) {
+    return {
+        name: guessed.name,
+        correct: answer.slug === guessed.slug,
+        class: { value: guessed.class, match: guessed.class === answer.class },
+        role:  { value: guessed.role,  match: guessed.role  === answer.role  },
+        team:  { value: guessed.team,  match: guessed.team  === answer.team  }
+    }
+}
 
 async function makeIdentifier(data: PuzzleToken) {
 	const encrypted = await encrypt(new TextEncoder().encode(JSON.stringify(data)))
@@ -35,6 +46,15 @@ export const load: PageServerLoad = async ({ url, cookies }) => {
         userId = "guest"
     }
 
+    void refreshVehiclesIfStale(GameType.MTC).catch((err) => console.error('Vehicle sync failed:', err))
+
+    const guessable = await db
+        .select({ slug: vehicles.slug, name: vehicles.name })
+        .from(vehicles)
+        .where(isNull(vehicles.archivedAt))
+        .orderBy(vehicles.name)
+
+    const options: Record<string, string> = Object.fromEntries(guessable.map((v) => [v.slug, v.name]))
     // const cutoffDate = dateObj
     if (url.searchParams.get('type') === "infinite")  {
         const [pick] = await db
@@ -50,7 +70,7 @@ export const load: PageServerLoad = async ({ url, cookies }) => {
 
         const data: PuzzleToken = { v: 1, mode: 'infinite', slug: pick.slug, game: GameType.MTC, createdAt: new Date().getTime(), user: userId}
         const identifier = await makeIdentifier(data)
-        return { identifier: identifier }
+        return { identifier: identifier, vehicles: options}
     } else {
         let currMTCdle = await db.query.dailyMTCdle.findFirst({
             where: (t, { eq }) => eq(t.date, today), // dateObj is still the curr date here
@@ -91,11 +111,9 @@ export const load: PageServerLoad = async ({ url, cookies }) => {
             }
         }
 
-	    void refreshVehiclesIfStale(GameType.MTC).catch((err) => console.error('Vehicle sync failed:', err))
-
         const data: PuzzleToken = { v: 1, mode: 'daily', date: currMTCdle.date, user: userId}
         const identifier = await makeIdentifier(data)
-        return { identifier: identifier }
+        return { identifier: identifier, vehicles: options }
     }
 };
 
@@ -131,6 +149,14 @@ export const actions = {
             return fail(400, { message: 'Your login changed, please reload' })
         }
 
+        const guessable = await db.query.vehicles.findFirst({
+            where: (t, {eq, and, isNull}) => and(eq(t.slug, guess), isNull(t.archivedAt))
+        });
+
+        if (!guessable) {
+            return fail(400, { message: "Not a guessable tank" })
+        }
+
         if (puzzle.mode === 'daily') {
             const yesterdayDate = new Date()
             yesterdayDate.setUTCDate(yesterdayDate.getUTCDate() - 1)
@@ -143,6 +169,7 @@ export const actions = {
                 where: (t, { eq }) => eq(t.date, puzzle.date),
                 with: { vehicle: true },
             })
+
 
             if (!answer) {
                 return fail(400, { message: 'Daily puzzle does not exist, please reload' })
@@ -183,20 +210,16 @@ export const actions = {
                 guessCount = Number(form.get('guessNumber')) || 0
             }
 
-            if (answer.vehicleSlug === guess) {
-                if (userId) {
-                    await db.update(solves)
-                        .set({ solvedAt: new Date() })
-                        .where(and(eq(solves.userId, userId), eq(solves.date, puzzle.date)))
-                }
-                return { correct: true, vehicle: reveal }
-            } 
+            const result = compareGuess(guessable, answer.vehicle)
 
-            if (guessCount >= MAX_GUESSES) {
-                return { correct: false, outOfGuesses: true, vehicle: reveal }
+            if (result.correct && userId) {
+                await db.update(solves)
+                    .set({ solvedAt: new Date() })
+                    .where(and(eq(solves.userId, userId), eq(solves.date, puzzle.date)))
             }
 
-            return { correct: false }
+            const done = result.correct || guessCount >= MAX_GUESSES
+            return { result, answer: done ? reveal : null }
 
         } 
         if (puzzle.mode === 'infinite') {
@@ -204,16 +227,22 @@ export const actions = {
                 return fail(400, { message: 'This round has expired, please start a new one' })
             }
 
-            if (puzzle.slug === guess) {
-                const vehicle = await db.query.vehicles.findFirst({
-                    where: (t, { eq }) => eq(t.slug, puzzle.slug),
-                })
-                return {
-                    correct: true,
-                    vehicle: vehicle ? { name: vehicle.name, team: vehicle.team, role: vehicle.role } : null,
-                }
+            const answer = await db.query.vehicles.findFirst({
+                where: (t, { eq }) => eq(t.slug, puzzle.slug)
+            })
+
+            if (!answer) {
+                return fail(400, { message: 'Puzzle does not exist, please reload' })
             }
-            return { correct: false }
+
+            const reveal = {
+                name: answer.name,
+                team: answer.team,
+                role: answer.role,
+            };
+
+            const result = compareGuess(guessable, answer)
+            return { result, answer: result.correct ? reveal : null }
         }
 
         return fail(400, { message: 'Unsupported puzzle, please reload' })

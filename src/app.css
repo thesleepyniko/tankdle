@@ -1,0 +1,15 @@
+/* ngl this is whole file is gen by claude */
+body {
+    margin: 0 5vw;
+    background-color: black;
+    color: white;
+    font-family: Arial, Helvetica, sans-serif;
+}
+
+a {
+    color: lightblue;
+}
+
+a:visited {
+    color: plum;
+}

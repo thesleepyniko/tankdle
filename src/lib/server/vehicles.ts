@@ -38,7 +38,7 @@ export async function refreshVehicles(game: GameType) {
                 class: sql`excluded.class`,
                 role: sql`excluded.role`,
                 team: sql`excluded.team`,
-                image: sql`excluded.image`,
+                image: sql`excluded.image_url`,
             }
         });
 
