@@ -1,7 +1,7 @@
 # Build on real Node: in oven/bun images `node` is symlinked to bun, and under bun
 # SvelteKit's route analysis exits silently before adapter-node writes ./build.
 FROM node:24-slim AS build
-COPY --from=oven/bun:1.3.6 /usr/local/bin/bun /usr/local/bin/bun
+COPY --from=oven/bun:1 /usr/local/bin/bun /usr/local/bin/bun
 WORKDIR /app
 
 COPY package.json bun.lock .npmrc ./
@@ -15,7 +15,7 @@ RUN DATABASE_URL=postgres://build:build@localhost:5432/build \
     IMAGE_DIR=/app/data/images \
     bun run build
 
-FROM oven/bun:1.3.6-slim AS runtime
+FROM oven/bun:1-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production \
     PORT=3000 \

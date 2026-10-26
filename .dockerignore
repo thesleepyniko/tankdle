@@ -10,4 +10,3 @@ data
 .DS_Store
 Dockerfile
 docker-compose.yaml
-compose.yaml
