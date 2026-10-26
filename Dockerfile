@@ -1,4 +1,7 @@
-FROM oven/bun:1.3.6 AS build
+# Build on real Node: in oven/bun images `node` is symlinked to bun, and under bun
+# SvelteKit's route analysis exits silently before adapter-node writes ./build.
+FROM node:24-slim AS build
+COPY --from=oven/bun:1.3.6 /usr/local/bin/bun /usr/local/bin/bun
 WORKDIR /app
 
 COPY package.json bun.lock .npmrc ./
