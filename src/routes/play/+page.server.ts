@@ -242,7 +242,9 @@ export const actions = {
             };
 
             const result = compareGuess(guessable, answer)
-            return { result, answer: result.correct ? reveal : null }
+            const guessCount = Number(form.get('guessNumber')) || 0
+            const done = result.correct || guessCount >= MAX_GUESSES
+            return { result, answer: done ? reveal : null }
         }
 
         return fail(400, { message: 'Unsupported puzzle, please reload' })
