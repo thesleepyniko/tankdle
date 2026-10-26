@@ -159,7 +159,7 @@
         gap: 1rem;
         max-width: 720px;
         margin: 0 auto;
-        padding: 1rem 16px 0; 
+        padding: 1rem 16px 1rem; 
     }
 
     .tank {
