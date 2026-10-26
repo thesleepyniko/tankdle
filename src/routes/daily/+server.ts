@@ -30,10 +30,15 @@ export const GET: RequestHandler = async () => {
         }
     }
 
-	return new Response(new Uint8Array(file), {
-		headers: {
-			'Content-Type': 'image/png',
-			'Cache-Control': 'private, max-age=3600',
-		},
-	})
+	const now = new Date()
+    const midnight = new Date(now)
+    midnight.setUTCHours(24, 0, 0, 0)
+    const untilMidnight = Math.floor((midnight.getTime() - now.getTime()) / 1000)
+
+    return new Response(new Uint8Array(file), {
+            headers: {
+                    'Content-Type': 'image/png',
+                    'Cache-Control': `private, max-age=${Math.min(3600, untilMidnight)}`,
+            },
+    })
 }
